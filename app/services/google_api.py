@@ -7,13 +7,18 @@ from app.core.config import settings
 
 FORMAT = '%Y/%m/%d %H:%M:%S'
 SHEET_TITLE = 'Отчет на {}'
+ROW_COUNT = 100
+COLUMN_COUNT = 11
+SHEET_ERROR_MESSAGE = (f'Передана некорректная информация. Ожидалось '
+                       f'{ROW_COUNT} строк и {COLUMN_COUNT} колонок. '
+                       'Передано {} строк и {} колонок.')
 SPREADSHEET_BODY = dict(
     properties=dict(title='', locale='ru_RU'),
     sheets=[dict(properties=dict(
         sheetType='GRID',
         sheetId=0,
         title='Лист1',
-        gridProperties=dict(rowCount=100, columnCount=11)
+        gridProperties=dict(rowCount=ROW_COUNT, columnCount=COLUMN_COUNT)
     ))]
 )
 PERMISSION_USER_DATA = dict(
@@ -21,7 +26,6 @@ PERMISSION_USER_DATA = dict(
     role='writer',
     emailAddress=settings.email
 )
-PERMISSION_FIELD = 'id'
 DRIVE_API_NAME = 'drive'
 DRIVE_API_VERSION = 'v3'
 SHEETS_API_NAME = 'sheets'
@@ -31,12 +35,12 @@ TABLE_VALUES = [
     ['Топ проектов по скорости закрытия'],
     ['Название проекта', 'Время сбора', 'Описание']
 ]
-RANGE = 'A1:E{}'
+RANGE = 'R1C1:R{}C{}'
 VALUE_INPUT_OPTION = 'USER_ENTERED'
 MAJOR_DIMENSION = 'ROWS'
 
 
-async def spreadsheets_create(wrapper_services: Aiogoogle) -> str:
+async def spreadsheets_create(wrapper_services: Aiogoogle) -> dict:
     service = await wrapper_services.discover(
         SHEETS_API_NAME,
         SHEETS_API_VERSION
@@ -48,7 +52,10 @@ async def spreadsheets_create(wrapper_services: Aiogoogle) -> str:
     response = await wrapper_services.as_service_account(
         service.spreadsheets.create(json=spreadsheet_body)
     )
-    return response['spreadsheetId']
+    return dict(
+        spreadsheet_id=response['spreadsheetId'],
+        spreadsheet_url=response['spreadsheetUrl']
+    )
 
 
 async def set_user_permissions(
@@ -63,7 +70,7 @@ async def set_user_permissions(
         service.permissions.create(
             fileId=spreadsheet_id,
             json=PERMISSION_USER_DATA,
-            fields=PERMISSION_FIELD
+            fields='id'
         )
     )
 
@@ -79,21 +86,26 @@ async def spreadsheets_update_value(
     )
     table_values = deepcopy(TABLE_VALUES)
     table_values[0][1] = datetime.now().strftime(FORMAT)
-    for project in projects:
-        new_row = [
+    table_values = [
+        *table_values,
+        *[[
             project.name,
             str(timedelta(project.date_difference)),
             project.description
-        ]
-        table_values.append(new_row)
-        await wrapper_services.as_service_account(
-            service.spreadsheets.values.update(
-                spreadsheetId=spreadsheet_id,
-                range=RANGE.format(len(table_values)),
-                valueInputOption=VALUE_INPUT_OPTION,
-                json={
-                    'majorDimension': MAJOR_DIMENSION,
-                    'values': table_values
-                }
-            )
+        ] for project in projects]
+    ]
+    row_amount = len(table_values)
+    column_amount = max(len(row) for row in table_values)
+    if row_amount > ROW_COUNT or column_amount > COLUMN_COUNT:
+        raise ValueError(SHEET_ERROR_MESSAGE.format(row_amount, column_amount))
+    await wrapper_services.as_service_account(
+        service.spreadsheets.values.update(
+            spreadsheetId=spreadsheet_id,
+            range=RANGE.format(row_amount, column_amount),
+            valueInputOption=VALUE_INPUT_OPTION,
+            json={
+                'majorDimension': MAJOR_DIMENSION,
+                'values': table_values
+            }
         )
+    )
