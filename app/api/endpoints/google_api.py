@@ -1,5 +1,3 @@
-from datetime import datetime
-
 from aiogoogle import Aiogoogle
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,11 +10,10 @@ from app.services.google_api import (
     set_user_permissions, spreadsheets_create, spreadsheets_update_value
 )
 
-# TODO сервисы из гугл АПИ
-
 GOOGLE_API_PATH = '/'
 
 router = APIRouter()
+
 
 @router.get(
     GOOGLE_API_PATH,
